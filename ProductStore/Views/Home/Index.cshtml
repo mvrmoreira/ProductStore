@@ -1,45 +1,170 @@
-﻿@{
-    ViewBag.Title = "Home Page";
-}
-@section featured {
-    <section class="featured">
-        <div class="content-wrapper">
-            <hgroup class="title">
-                <h1>@ViewBag.Title.</h1>
-                <h2>@ViewBag.Message</h2>
-            </hgroup>
-            <p>
-                To learn more about ASP.NET MVC visit
-                <a href="http://asp.net/mvc" title="ASP.NET MVC Website">http://asp.net/mvc</a>.
-                The page features <mark>videos, tutorials, and samples</mark> to help you get the most from ASP.NET MVC.
-                If you have any questions about ASP.NET MVC visit
-                <a href="http://forums.asp.net/1146.aspx/1?MVC" title="ASP.NET MVC Forum">our forums</a>.
-            </p>
-        </div>
-    </section>
-}
-<h3>We suggest the following:</h3>
-<ol class="round">
-    <li class="one">
-        <h5>Getting Started</h5>
-        ASP.NET MVC gives you a powerful, patterns-based way to build dynamic websites that
-        enables a clean separation of concerns and that gives you full control over markup
-        for enjoyable, agile development. ASP.NET MVC includes many features that enable
-        fast, TDD-friendly development for creating sophisticated applications that use
-        the latest web standards.
-        <a href="http://go.microsoft.com/fwlink/?LinkId=245151">Learn more…</a>
-    </li>
+﻿@section Scripts {
+    <script type="text/javascript" src="@Url.Content("~/Scripts/knockout-2.2.0.js")"></script>
+    <script type="text/javascript">
 
-    <li class="two">
-        <h5>Add NuGet packages and jump-start your coding</h5>
-        NuGet makes it easy to install and update free libraries and tools.
-        <a href="http://go.microsoft.com/fwlink/?LinkId=245153">Learn more…</a>
-    </li>
+    function AppViewModel() {
+        var self = this;
+        self.loggedIn = @(Request.IsAuthenticated ? "true" : "false");
+        
+        self.products = ko.observableArray();
+        self.cart = ko.observableArray();
+        self.orders = ko.observableArray();
+        self.details = ko.observable();
 
-    <li class="three">
-        <h5>Find Web Hosting</h5>
-        You can easily find a web hosting company that offers the right mix of features
-        and price for your applications.
-        <a href="http://go.microsoft.com/fwlink/?LinkId=245157">Learn more…</a>
-    </li>
-</ol>
+        function ProductViewModel(root, product) {
+            var self = this;
+            self.ProductId = product.Id;
+            self.Name = product.Name;
+            self.Price = product.Price;
+            self.Quantity = ko.observable(0);
+
+            self.addItemToCart = function() {
+                var qty = self.Quantity();
+                if (qty == 0) {
+                    root.cart.push(self);
+                }
+                self.Quantity(qty + 1);
+            };
+
+            self.removeAllFromCart = function() {
+                self.Quantity(0);
+                root.cart.remove(self);
+            };
+        }
+
+        function OrderDetailsViewModel(order) {
+            var self = this;
+            self.items = ko.observableArray();
+            self.Id = order.Id;
+            
+            self.total = ko.computed(function(){
+                var sum = 0;
+                $.each(self.items(), function(index, item){
+                    sum += item.Price * item.Quantity;
+                });
+                return '$' + sum.toFixed(2);
+            });
+
+            $.getJSON("/api/orders/" + order.Id, function(order){
+                $.each(order.Details, function(index, item){
+                    self.items.push(item);
+                });
+            });
+        }
+
+        self.resetCart = function() {
+            var items = self.cart.removeAll();
+            $.each(items, function (index, product) {
+                product.Quantity(0);
+            });
+        }
+
+        self.getDetails = function (order) {
+            self.details(new OrderDetailsViewModel(order));
+        }
+
+        self.createOrder = function () {
+            var jqxhr = $.ajax({
+                type: 'POST',
+                url: "api/orders",
+                contentType: 'application/json; charset=utf-8',
+                data: ko.toJSON({ Details: self.cart }),
+                dataType: "json",
+                success: function (newOrder) {
+                    self.resetCart();
+                    self.orders.push(newOrder);
+                },
+                error: function (jqXHR, textStatus, errorThrown) {
+                    self.errorMessage(errorThrown);
+                }  
+            });
+        };
+
+        // Initialize the view-model.
+        $.getJSON("/api/products", function (products) {
+            $.each(products, function (index, product) {
+                self.products.push(new ProductViewModel(self, product));
+            })
+        });
+
+        $.getJSON("api/orders", self.orders);
+    }
+
+    $(document).ready(function () {
+        ko.applyBindings(new AppViewModel());
+    });
+
+</script>
+}
+
+<div class="content">
+    <!-- List of products -->
+    <div class="float-left">
+        <h1>Products</h1>
+        <ul id="products" data-bind="foreach: products">
+            <li>
+                <div>
+                    <span data-bind="text: Name"></span>
+                    <span class="price" data-bind="text: '$' + Price"></span>
+                </div>
+                <div data-bind="if: $parent.loggedIn">
+                    <button data-bind="click: addItemToCart">Add to Cart</button>
+                </div>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Cart -->
+    <div id="cart" class="float-right" data-bind="visible: cart().length > 0">
+        <h1>Your Cart</h1>
+        <table class="details ui-widget-content">
+            <thead>
+                <tr><td>Item</td><td>Price</td><td>Quantity</td><td></td></tr>
+            </thead>
+            <tbody data-bind="foreach: cart">
+                <tr>
+                    <td><span data-bind="text: $data.Name"></span></td>
+                    <td>$<span data-bind="text: $data.Price"></span></td>
+                    <td class="qty"><span data-bind="text: $data.Quantity()"></span></td>
+                    <td><a href="#" data-bind="click: removeAllFromCart">Remove</a></td>
+                </tr>
+            </tbody>
+        </table>
+        <input type="button" data-bind="click: createOrder" value="Create Order" />
+    </div>
+</div>
+
+<div id="orders-area" class="content">
+    <!-- List of orders -->
+    <div class="float-left">
+        <h1>Your Orders</h1>
+        <ul id="orders" data-bind="foreach: orders">
+            <li class="ui-widget-content">
+                <a href="#" data-bind="click: $root.getDetails">
+                    Order # <span data-bind="text: $data.Id"></span>
+                </a>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Order Details -->
+    <div id="order-details" class="float-right" data-bind="if: details()">
+        <h2>Order #<span data-bind="text: details().Id"></span></h2>
+        <table class="details ui-widget-content">
+            <thead>
+                <tr><td>Item</td><td>Price</td><td>Quantity</td><td>Subtotal</td></tr>
+            </thead>
+            <tbody data-bind="foreach: details().items">
+                <tr>
+                    <td><span data-bind="text: $data.Product"></span></td>
+                    <td><span data-bind="text: $data.Price"></span></td>
+                    <td><span data-bind="text: $data.Quantity"></span></td>
+                    <td>
+                        <span data-bind="text: ($data.Price * $data.Quantity).toFixed(2)"></span>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        <p>Total: <span data-bind="text: details().total"></span></p>
+    </div>
+</div>
